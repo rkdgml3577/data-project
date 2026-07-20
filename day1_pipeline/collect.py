@@ -6,7 +6,8 @@
 #작성일: 2026-07-20
 #변경내역:
 #    v1.0 (2026-07-20) 최초 작성 — 3개 API 를 asyncio.gather 로 동시 수집
-
+#    v1.1 (2026-07-20) asyncio.gather 는 list 를 반환하므로 tuple 선언은 사실과 달랐다.
+                       언패킹 동작에는 문제가 없었으나 정적 분석 도구가 오판할 수 있어 수정
 핵심 설계
     - fetch_json(): 단일 URL 수집. HTTP 오류·타임아웃·JSON 오류를 원인별로
       잡아 logger.error 후 None 반환 (한 API 실패가 전체를 중단시키지 않음)
@@ -66,7 +67,7 @@ async def fetch_json(client: httpx.AsyncClient, url: str) -> dict | list | None:
         return None
 
 
-async def collect_all() -> tuple[dict | None, dict | list | None, dict | None]:
+async def collect_all() -> list:
     """3개 API 를 동시에 수집해 (weather, country, ip) 원본 JSON 을 반환한다.
 
     asyncio.gather 로 세 요청을 병렬 실행하므로 총 소요시간은
