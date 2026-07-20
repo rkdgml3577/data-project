@@ -6,7 +6,8 @@
 #작성일: 2026-07-20
 #변경내역:
 #    v1.0 (2026-07-20) 최초 작성 — 두 형식 쓰기/읽기 시간과 파일 크기 측정
-
+#    v1.1 (2026-07-20) 크기 비교 해석을 측정값 기반 분기로 수정 —
+#                      소규모 데이터에서 Parquet 이 더 큰 경우를 반영
 측정 방법
     - time.perf_counter 로 쓰기/읽기 각각 REPEAT 회 반복해 평균을 낸다
       (1회 측정은 OS 캐시·디스크 상태에 따라 편차가 커서 신뢰도가 낮다)
@@ -82,8 +83,13 @@ def print_benchmark(results: list[dict]) -> None:
             f"{r['read_ms']:>10.2f}{r['size_bytes']:>14,}"
         )
     csv_r, pq_r = results[0], results[1]
-    ratio = csv_r["size_bytes"] / pq_r["size_bytes"] if pq_r["size_bytes"] else 0
-    print(
-        f"  → 파일 크기: Parquet 이 CSV 의 1/{ratio:.1f} 수준. "
-        "컬럼 지향 압축 덕분에 데이터가 클수록 격차가 커진다."
-    )
+    csv_size, pq_size = csv_r["size_bytes"], pq_r["size_bytes"]
+    if pq_size < csv_size:
+        print(f"  → 파일 크기: Parquet 이 CSV 의 1/{csv_size / pq_size:.1f} 수준으로 작다.")
+    else:
+        print(
+            f"  → 파일 크기: 이 규모에서는 Parquet 이 CSV 의 "
+            f"{pq_size / csv_size:.1f}배로 오히려 크다 — 스키마·푸터 등 "
+            "메타데이터 오버헤드가 본문보다 크기 때문이다."
+        )
+    print("     컬럼 지향 압축은 데이터가 늘수록 유리해져 수천 행 이상에서 역전된다.")
