@@ -8,6 +8,7 @@
 #    v1.0 (2026-07-20) 최초 작성 — 두 형식 쓰기/읽기 시간과 파일 크기 측정
 #    v1.1 (2026-07-20) 크기 비교 해석을 측정값 기반 분기로 수정 —
 #                      소규모 데이터에서 Parquet 이 더 큰 경우를 반영
+#    v1.2 (2026-07-20) % 포맷을 f-string 으로 교체 (UP031)
 측정 방법
     - time.perf_counter 로 쓰기/읽기 각각 REPEAT 회 반복해 평균을 낸다
       (1회 측정은 OS 캐시·디스크 상태에 따라 편차가 커서 신뢰도가 낮다)
@@ -75,7 +76,7 @@ def benchmark_formats(df: pd.DataFrame, out_dir: Path) -> list[dict]:
 
 def print_benchmark(results: list[dict]) -> None:
     """측정 결과를 표 형태로 출력하고 간단한 해석을 덧붙인다."""
-    print("\n[성능 비교] 쓰기/읽기 평균 (반복 %d회)" % REPEAT)
+    print(f"\n[성능 비교] 쓰기/읽기 평균 (반복 {REPEAT}회)")
     print(f"  {'형식':<8}{'쓰기(ms)':>10}{'읽기(ms)':>10}{'크기(bytes)':>14}")
     for r in results:
         print(
