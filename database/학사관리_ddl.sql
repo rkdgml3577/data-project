@@ -126,4 +126,4 @@ CREATE TABLE attendance (
     status        VARCHAR(2) NOT NULL
                   CHECK (status IN ('출석','지각','결석')),   -- 3종 (R17)
     UNIQUE (enrollment_id, class_date)          -- 같은 수업일 이중 기록 금지
-);
+); 
