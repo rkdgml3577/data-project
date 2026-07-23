@@ -8,10 +8,13 @@
 --                     ① customers.name → customer_name (Q7·Q8, 미수정 시 오류)
 --                     ② 배경 수치 전면 교체 (연습본과 시드 규모가 다름)
 --                     ③ Q12 매니저 배정식 수정 (배포본 매니저는 Mgr_2~Mgr_11)
+--   v1.2  2026-07-23  ④ Q14 재작성 — 강사 확인 결과 학과명은 major 코드값이며
+--                        본 문항은 CTE 연습을 겸한다. CTE 로 학과 마스터를
+--                        만들고 SELECT 절 스칼라 서브쿼리가 그것을 조회하는
+--                        구조로 변경(컬럼 2개 — 불필요 컬럼 없음).
 -- 공통 규칙: 조회 확인은 LIMIT 5 (문항이 건수를 명시하면 그 수를 따름)
 --          \pset null '(null)' 로 NULL 을 화면에 명시 (세션 시작 시 1회)
 --          \pset pager off 도 함께 (페이저에 걸려 캡처가 반복되는 사고 방지)
--- 채점 대응: ① 요구사항 반영 ② 필요한 컬럼만 SELECT ③ 전 쿼리 주석
 -- ----------------------------------------------------------------------------
 -- 실제 스키마 (배포 스크립트 STEP B2 에서 확인 — 전부 lab 스키마)
 --   student  (student_id, name, major, gpa)
@@ -99,12 +102,11 @@ LIMIT 5;
 -- ============================================================================
 -- Q6) 한 과목 이상 수강한 학생 목록 (중복 제거)
 -- ============================================================================
--- 2~3건 수강 학생이 여러 번 나오지 않도록 EXISTS(세미조인)로 존재 여부만 검사.
 -- 기대: 900명 (1,000 - 무수강 100)
--- (SELECT DISTINCT + JOIN 으로도 가능하나, 세미조인이 의도를 더 정확히 표현)
-SELECT s.student_id, s.name
+-- SELECT DISTINCT + JOIN 으로도 수행
+SELECT DISTINCT s.student_id, s.name
 FROM student s
-WHERE EXISTS (SELECT 1 FROM enroll e WHERE e.student_id = s.student_id)
+INNER JOIN enroll e ON e.student_id = s.student_id
 ORDER BY s.student_id
 LIMIT 5;
 
@@ -232,20 +234,28 @@ ORDER BY s.student_id, c.course
 LIMIT 100;
 
 -- ============================================================================
--- Q14) [심화] 스칼라 서브쿼리(SELECT 절) — 학생 + 학과 평균 GPA 붙이기
+-- Q14) [심화] 스칼라 서브쿼리(SELECT 절) — 학생 + 학과 + 평균 GPA 붙이기
 -- ============================================================================
--- SELECT 절의 서브쿼리는 행마다 값 1개를 되돌려 "붙이는" 용도.
--- 각 학생 옆에 자기 학과의 평균 GPA 를 나란히 보여 비교 가능하게 한다.
+-- 학과명은 student.major 코드값 그대로이며, 본 문항은 CTE 연습을
+-- 겸한다 → CTE 로 "학과 마스터"를 만들고, SELECT 절 스칼라 서브쿼리가 그
+-- CTE 를 조회해 학과명을 가져오는 구조로 작성한다.
+--
+-- 왜 이런 구조인가: 배포 스키마에는 학과 테이블이 없고 student.major 에
+-- 학과가 직접 들어 있다. 그래서 실제 학사 DB 라면 존재했을 학과 마스터를
+-- CTE 로 대신 만든다(DISTINCT 로 학과 목록을 뽑아 학과당 1행). 서브쿼리가
+-- 반드시 1행만 되돌려야 스칼라 서브쿼리가 성립하는데, DISTINCT 가 그것을
+-- 보장한다 — 중복이 있으면 "more than one row returned" 오류가 난다.
+WITH dept AS (                       -- 학과 마스터 대용 (학과당 정확히 1행)
+    SELECT DISTINCT major AS dept_name
+    FROM student
+)
 SELECT s.name,
-       s.major,
-       s.gpa,
-       (SELECT ROUND(AVG(s2.gpa), 2)
-        FROM student s2
-        WHERE s2.major = s.major)    AS major_avg_gpa   -- 스칼라 서브쿼리
+       (SELECT d.dept_name           -- ★ 스칼라 서브쿼리 (SELECT 절)
+        FROM dept d
+        WHERE d.dept_name = s.major) AS dept_name
 FROM student s
 ORDER BY s.student_id
 LIMIT 5;
-
 -- ============================================================================
 -- Q15) [심화] 전체 평균 GPA 보다 높은 학생 — WHERE 서브쿼리
 -- ============================================================================
@@ -463,9 +473,70 @@ ORDER BY student_id, course
 LIMIT 5;
 
 -- ============================================================================
--- Q25) [심화] 학과별 GPA 상위 3명 — 문항 23 과 요구 문구가 동일
+-- Q25) [심화] 주문 누적합 · 3개 이동평균 · 고객별 누적 — ROWS BETWEEN
 -- ============================================================================
--- 슬라이드상 23번과 25번의 요구가 같다(교안 중복으로 보임 — 강사 확인 예정).
--- 답안 요건(서브쿼리·CTE 두 방식, 동률 2차 기준, RANK vs DENSE_RANK,
--- COUNT OVER)은 Q23 의 두 쿼리가 모두 충족하므로 동일 쿼리로 제출한다.
--- (별도 변형이 요구되면 여기서 수정)
+-- 요구 4가지를 한 화면에서 확인한다:
+--   ① SUM(amount) OVER (ORDER BY order_id
+--      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  → 전체 누적합
+--   ② AVG(amount) OVER (ORDER BY order_id
+--      ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)          → 3개 이동평균
+--   ③ PARTITION BY customer_id                            → 고객별 누적 구매금액
+--   ④ 누적합이 전체 합의 50% 를 넘는 첫 order_id          → 25-B 에서 별도 작성
+--
+-- [프레임을 왜 명시하는가] ORDER BY 만 쓰고 프레임을 생략하면 기본값이
+-- RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW 라, 정렬 키가 같은 행이
+-- 있으면 그 행들을 한 덩어리로 묶어 같은 값을 준다. ROWS 는 "행 단위"라
+-- 동률이 있어도 한 행씩 누적된다. 여기서는 order_id 가 PK 라 결과가 같지만,
+-- 문항이 ROWS 를 지정한 이유가 이 차이다.
+-- [이동평균의 첫 두 행] 2 PRECEDING 이라도 앞에 행이 없으면 있는 만큼만
+-- 평균한다 → 1행은 자기 1개, 2행은 2개 평균. NULL 이 아니라 정상 동작이다.
+ 
+-- 25-A) 누적합 · 3개 이동평균 · 고객별 누적 (한 쿼리에서 ①②③)
+SELECT order_id,
+       customer_id,
+       amount,
+       SUM(amount) OVER (ORDER BY order_id
+                         ROWS BETWEEN UNBOUNDED PRECEDING
+                                  AND CURRENT ROW)        AS running_total,
+       ROUND(AVG(amount) OVER (ORDER BY order_id
+                         ROWS BETWEEN 2 PRECEDING
+                                  AND CURRENT ROW), 2)    AS moving_avg_3,
+       SUM(amount) OVER (PARTITION BY customer_id         -- ③ 고객별로 프레임 분리
+                         ORDER BY order_id
+                         ROWS BETWEEN UNBOUNDED PRECEDING
+                                  AND CURRENT ROW)        AS cust_running_total
+FROM orders
+ORDER BY order_id
+LIMIT 5;
+--   cust_running_total 각 행의 amount 와 같다 — 앞 5건은 고객 2~6 으로 전부
+--     다른 사람이라 "그 고객의 첫 주문"이기 때문. 고객당 6건이므로 같은
+--     고객의 2번째 주문은 order_id 가 500 뒤에 온다(customer_id = order_id%500+1).
+--   검산: running_total 은 매 행 amount 만큼 늘어야 하고, 3행부터의
+--         moving_avg_3 은 직전 3개 amount 의 평균과 일치해야 한다.
+ 
+-- 25-B) ④ 누적합이 전체 합의 50% 를 초과하는 첫 order_id
+-- 누적합과 전체합을 같은 층에서 만든 뒤 비교한다. WHERE 절에서는 윈도 함수를
+-- 쓸 수 없어(WHERE 가 윈도 계산보다 먼저 평가된다) CTE 로 한 단계 내린다.
+WITH running AS (
+    SELECT order_id,
+           amount,
+           SUM(amount) OVER (ORDER BY order_id
+                             ROWS BETWEEN UNBOUNDED PRECEDING
+                                      AND CURRENT ROW) AS running_total,
+           SUM(amount) OVER ()                         AS grand_total
+    FROM orders
+)
+SELECT order_id,
+       amount,
+       running_total,
+       grand_total,
+       ROUND(100.0 * running_total / grand_total, 2) AS pct_of_total
+FROM running
+WHERE running_total > grand_total * 0.5   -- 50% 를 "초과"하는 지점
+ORDER BY order_id
+LIMIT 1;                                  -- 그중 첫 번째
+-- 주문이 3,000건이니 절반은 1,500번째일 것 같지만 1503 이 나온다.
+-- amount 가 균등하지 않아 "건수의 절반"과 "금액의 절반"이 어긋나기 때문에 누적합을 사용한다.
+--
+-- 검산: grand_total 은 SELECT SUM(amount) FROM orders 와 같아야 하고,
+--       order_id = 1502 의 running_total 은 3,682,992.50 이하여야 한다.
